@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, memo } from 'react';
 import { 
   Plus, 
   Wallet, 
@@ -59,6 +59,31 @@ const PIE_DATA = [
   { name: 'Hiburan', value: 300, color: '#f43f5e' },
   { name: 'Lainnya', value: 200, color: '#10b981' },
 ];
+
+const WeeklyChart = memo(({ data }) => (
+  <ResponsiveContainer width="100%" height={180}>
+    <AreaChart data={data}>
+      <defs>
+        <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+          <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+        </linearGradient>
+      </defs>
+      <Tooltip 
+        contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
+        itemStyle={{ color: '#fff' }}
+      />
+      <Area 
+        type="monotone" 
+        dataKey="amount" 
+        stroke="#6366f1" 
+        fillOpacity={1} 
+        fill="url(#colorAmount)" 
+        strokeWidth={3}
+      />
+    </AreaChart>
+  </ResponsiveContainer>
+));
 
 import './App.css';
 
@@ -191,9 +216,15 @@ function App() {
     localStorage.setItem('kantongku_debts', JSON.stringify(debts));
   }, [debts]);
 
-  const totalBalance = transactions.reduce((acc, curr) => acc + curr.amount, 0);
-  const totalIncome = transactions.filter(t => t.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
-  const totalExpense = Math.abs(transactions.filter(t => t.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0));
+  const { totalBalance, totalIncome, totalExpense } = useMemo(() => {
+    const income = transactions.filter(t => t.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
+    const expense = Math.abs(transactions.filter(t => t.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0));
+    return {
+      totalBalance: transactions.reduce((acc, curr) => acc + curr.amount, 0),
+      totalIncome: income,
+      totalExpense: expense
+    };
+  }, [transactions]);
 
   const handleAddTransaction = (e) => {
     e.preventDefault();
@@ -328,10 +359,12 @@ function App() {
     { id: 2, text: 'Gaji Bulanan telah masuk!', time: '1h yang lalu' },
   ];
 
-  const filteredTransactions = transactions.filter(t => 
-    t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => 
+      t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.category.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [transactions, searchQuery]);
 
   const formatCurrency = (val) => {
     return new Intl.NumberFormat('id-ID', {
@@ -460,28 +493,7 @@ function App() {
                 <button className="text-btn" onClick={() => setActiveTab('stats')}>Lihat Detail</button>
               </div>
               <div className="chart-container glass-card">
-                <ResponsiveContainer width="100%" height={180}>
-                  <AreaChart data={CHART_DATA}>
-                    <defs>
-                      <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="amount" 
-                      stroke="#6366f1" 
-                      fillOpacity={1} 
-                      fill="url(#colorAmount)" 
-                      strokeWidth={3}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <WeeklyChart data={CHART_DATA} />
               </div>
             </section>
 
