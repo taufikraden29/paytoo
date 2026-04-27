@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, memo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Plus, 
   Wallet, 
@@ -43,21 +44,11 @@ const MOCK_TRANSACTIONS = [
   { id: 5, title: 'Bensin Motor', amount: -30000, type: 'expense', category: 'Transport', date: '2024-03-23' },
 ];
 
-const CHART_DATA = [
-  { day: 'Sen', amount: 400 },
-  { day: 'Sel', amount: 300 },
-  { day: 'Rab', amount: 600 },
-  { day: 'Kam', amount: 800 },
-  { day: 'Jum', amount: 500 },
-  { day: 'Sab', amount: 900 },
-  { day: 'Min', amount: 700 },
-];
-
-const PIE_DATA = [
-  { name: 'Makanan', value: 400, color: '#6366f1' },
-  { name: 'Transport', value: 300, color: '#a855f7' },
-  { name: 'Hiburan', value: 300, color: '#f43f5e' },
-  { name: 'Lainnya', value: 200, color: '#10b981' },
+const PIE_DATA_DEFAULT = [
+  { name: 'Makanan', value: 0, color: '#6366f1' },
+  { name: 'Transport', value: 0, color: '#a855f7' },
+  { name: 'Hiburan', value: 0, color: '#f43f5e' },
+  { name: 'Lainnya', value: 0, color: '#10b981' },
 ];
 
 const WeeklyChart = memo(({ data }) => (
@@ -140,7 +131,7 @@ function App() {
   });
 
   const [sheetUrl, setSheetUrl] = useState(() => {
-    return localStorage.getItem('kantongku_sheet_url') || '';
+    return localStorage.getItem('kantongku_sheet_url') || import.meta.env.VITE_GOOGLE_SHEET_URL || '';
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isAutoSync, setIsAutoSync] = useState(() => {
@@ -155,38 +146,53 @@ function App() {
     localStorage.setItem('kantongku_sheet_url', sheetUrl);
   }, [sheetUrl]);
 
-  const syncToCloud = async (singleTransaction = null, manualDebts = null, manualTrans = null) => {
-    if (!sheetUrl) return alert('Masukkan URL Web App Google Script terlebih dahulu');
-    if (!singleTransaction) setIsSyncing(true);
-    
-    try {
+  const queryClient = useQueryClient();
+
+  const syncMutation = useMutation({
+    mutationFn: async ({ singleTransaction, manualDebts, manualTrans }) => {
+      if (!sheetUrl) throw new Error('URL Sheet belum diset');
       const payload = singleTransaction 
         ? { action: 'append', data: singleTransaction }
         : { action: 'sync', transactions: manualTrans || transactions, debts: manualDebts || debts };
 
-      await fetch(sheetUrl, {
+      return fetch(sheetUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      
-      if (!singleTransaction && !manualDebts) alert('Semua data (Transaksi & Hutang) berhasil dikirim!');
-    } catch (error) {
+    },
+    onSuccess: (_, variables) => {
+      if (!variables.singleTransaction && !variables.manualDebts) {
+        alert('Semua data berhasil dikirim!');
+      }
+    },
+    onError: (error) => {
       console.error(error);
-      if (!singleTransaction) alert('Gagal mengirim data ke Cloud');
-    } finally {
-      if (!singleTransaction) setIsSyncing(false);
+      alert('Gagal mengirim data ke Cloud: ' + error.message);
     }
+  });
+
+  const syncToCloud = (singleTransaction = null, manualDebts = null, manualTrans = null) => {
+    syncMutation.mutate({ singleTransaction, manualDebts, manualTrans });
   };
+
+  const fetchQuery = useQuery({
+    queryKey: ['cloudData', sheetUrl],
+    queryFn: async () => {
+      if (!sheetUrl) return null;
+      const response = await fetch(sheetUrl);
+      return response.json();
+    },
+    enabled: false, // Only trigger manually via refetch
+  });
 
   const syncFromCloud = async () => {
     if (!sheetUrl) return alert('Masukkan URL Web App Google Script terlebih dahulu');
-    setIsSyncing(true);
     try {
-      const response = await fetch(sheetUrl);
-      const result = await response.json();
-      
+      const { data: result } = await fetchQuery.refetch();
+      if (!result) return;
+
       if (result.transactions && result.debts) {
         if (confirm(`Ditemukan ${result.transactions.length} transaksi dan ${result.debts.length} catatan hutang. Timpa data lokal?`)) {
           setTransactions(result.transactions);
@@ -194,7 +200,6 @@ function App() {
           alert('Data berhasil diimpor!');
         }
       } else if (Array.isArray(result)) {
-        // Fallback for old script version
         if (confirm(`Ditemukan ${result.length} transaksi. Timpa data lokal?`)) {
           setTransactions(result);
           alert('Data transaksi berhasil diimpor!');
@@ -202,9 +207,7 @@ function App() {
       }
     } catch (error) {
       console.error(error);
-      alert('Gagal mengambil data dari Cloud. Pastikan Script sudah diupdate.');
-    } finally {
-      setIsSyncing(false);
+      alert('Gagal mengambil data dari Cloud.');
     }
   };
 
@@ -366,6 +369,44 @@ function App() {
     );
   }, [transactions, searchQuery]);
 
+  const dynamicChartData = useMemo(() => {
+    const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const last7Days = [...Array(7)].map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      return {
+        day: days[d.getDay()],
+        dateStr: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+        amount: 0
+      };
+    });
+
+    transactions.forEach(t => {
+      const dayData = last7Days.find(d => d.dateStr === t.date);
+      if (dayData && t.type === 'expense') {
+        dayData.amount += Math.abs(t.amount);
+      }
+    });
+
+    return last7Days;
+  }, [transactions]);
+
+  const dynamicPieData = useMemo(() => {
+    const categories = {};
+    transactions.filter(t => t.type === 'expense').forEach(t => {
+      categories[t.category] = (categories[t.category] || 0) + Math.abs(t.amount);
+    });
+
+    const colors = ['#6366f1', '#a855f7', '#f43f5e', '#10b981', '#f59e0b', '#3b82f6'];
+    const data = Object.keys(categories).map((name, i) => ({
+      name,
+      value: categories[name],
+      color: colors[i % colors.length]
+    }));
+
+    return data.length > 0 ? data : PIE_DATA_DEFAULT;
+  }, [transactions]);
+
   const formatCurrency = (val) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -493,7 +534,7 @@ function App() {
                 <button className="text-btn" onClick={() => setActiveTab('stats')}>Lihat Detail</button>
               </div>
               <div className="chart-container glass-card">
-                <WeeklyChart data={CHART_DATA} />
+                <WeeklyChart data={dynamicChartData} />
               </div>
             </section>
 
@@ -544,7 +585,7 @@ function App() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={PIE_DATA}
+                      data={dynamicPieData}
                       cx="50%"
                       cy="50%"
                       innerRadius={60}
@@ -552,7 +593,7 @@ function App() {
                       paddingAngle={5}
                       dataKey="value"
                     >
-                      {PIE_DATA.map((entry, index) => (
+                      {dynamicPieData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
@@ -561,11 +602,11 @@ function App() {
                 </ResponsiveContainer>
               </div>
               <div className="category-legend">
-                {PIE_DATA.map((item) => (
+                {dynamicPieData.map((item) => (
                   <div key={item.name} className="legend-item glass-card">
                     <div className="legend-color" style={{ backgroundColor: item.color }} />
                     <span className="legend-name">{item.name}</span>
-                    <span className="legend-value">{item.value}k</span>
+                    <span className="legend-value">{formatCurrency(item.value)}</span>
                   </div>
                 ))}
               </div>
@@ -701,7 +742,7 @@ function App() {
             <div className="section">
               <div className="section-header">
                 <h3>Cloud Sync (Google Sheets)</h3>
-                <Cloud size={18} className={isSyncing ? 'animate-pulse' : ''} />
+                <Cloud size={18} className={syncMutation.isPending || fetchQuery.isFetching ? 'animate-pulse' : ''} />
               </div>
               <div className="glass-card cloud-settings">
                 <div className="input-group">
@@ -737,18 +778,18 @@ function App() {
                   <button 
                     className="cloud-btn upload" 
                     onClick={() => syncToCloud()}
-                    disabled={isSyncing}
+                    disabled={syncMutation.isPending}
                   >
                     <CloudUpload size={18} />
-                    <span>Ekspor ke Sheet</span>
+                    <span>{syncMutation.isPending ? 'Mengirim...' : 'Ekspor ke Sheet'}</span>
                   </button>
                   <button 
                     className="cloud-btn download" 
                     onClick={syncFromCloud}
-                    disabled={isSyncing}
+                    disabled={fetchQuery.isFetching}
                   >
                     <CloudDownload size={18} />
-                    <span>Impor dari Sheet</span>
+                    <span>{fetchQuery.isFetching ? 'Mengambil...' : 'Impor dari Sheet'}</span>
                   </button>
                 </div>
                 <p className="cloud-tip">
