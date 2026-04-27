@@ -19,7 +19,11 @@ import {
   Settings,
   HandCoins,
   CheckCircle2,
-  Clock
+  Clock,
+  Zap,
+  TrendingDown,
+  TrendingUp,
+  Lightbulb
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -407,6 +411,41 @@ function App() {
     return data.length > 0 ? data : PIE_DATA_DEFAULT;
   }, [transactions]);
 
+  const financialHealth = useMemo(() => {
+    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
+    const avgDaily = totalExpense / new Date().getDate();
+    
+    let advice = {
+      title: 'Keuangan Aman!',
+      text: 'Pertahankan pola pengeluaran Anda. Tabungan Anda bulan ini cukup baik.',
+      icon: <Zap size={24} color="#10b981" />,
+      color: 'green'
+    };
+
+    if (savingsRate < 10) {
+      advice = {
+        title: 'Waspada Pengeluaran!',
+        text: 'Tabungan Anda di bawah 10%. Coba kurangi pengeluaran yang kurang perlu.',
+        icon: <TrendingDown size={24} color="#ef4444" />,
+        color: 'red'
+      };
+    } else if (savingsRate > 50) {
+      advice = {
+        title: 'Luar Biasa!',
+        text: 'Anda sangat hemat bulan ini! Pertimbangkan untuk berinvestasi.',
+        icon: <TrendingUp size={24} color="#6366f1" />,
+        color: 'purple'
+      };
+    }
+
+    const unSettledDebts = debts.filter(d => !d.isSettled && d.type === 'piutang').length;
+    if (unSettledDebts > 0) {
+      advice.extra = `Ada ${unSettledDebts} piutang yang belum tertagih.`;
+    }
+
+    return { savingsRate, avgDaily, advice };
+  }, [totalIncome, totalExpense, debts]);
+
   const formatCurrency = (val) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -527,6 +566,23 @@ function App() {
               </div>
             </motion.div>
 
+            {/* Advice Card */}
+            <motion.div 
+              className={`advice-card glass-card ${financialHealth.advice.color}`}
+              initial={{ x: 20, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              <div className="advice-icon">
+                {financialHealth.advice.icon}
+              </div>
+              <div className="advice-content">
+                <h4>{financialHealth.advice.title}</h4>
+                <p>{financialHealth.advice.text}</p>
+                {financialHealth.advice.extra && <span>{financialHealth.advice.extra}</span>}
+              </div>
+            </motion.div>
+
             {/* Weekly Chart */}
             <section className="section">
               <div className="section-header">
@@ -579,6 +635,21 @@ function App() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
+            <div className="stats-header-grid">
+              <div className="stat-metric glass-card">
+                <p>Savings Rate</p>
+                <h3>{financialHealth.savingsRate.toFixed(1)}%</h3>
+                <div className="mini-progress">
+                  <div className="mini-fill" style={{ width: `${Math.min(financialHealth.savingsRate, 100)}%` }}></div>
+                </div>
+              </div>
+              <div className="stat-metric glass-card">
+                <p>Avg. Harian</p>
+                <h3>{formatCurrency(financialHealth.avgDaily)}</h3>
+                <span>per hari</span>
+              </div>
+            </div>
+
             <section className="section">
               <h3>Distribusi Pengeluaran</h3>
               <div className="chart-container glass-card" style={{ height: '300px' }}>
