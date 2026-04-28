@@ -23,7 +23,8 @@ import {
   Zap,
   TrendingDown,
   TrendingUp,
-  Lightbulb
+  Lightbulb,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -118,7 +119,7 @@ function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [transactions, setTransactions] = useState(() => {
     const saved = localStorage.getItem('kantongku_transactions');
-    return saved ? JSON.parse(saved) : MOCK_TRANSACTIONS;
+    return saved ? JSON.parse(saved) : [];
   });
   const [debts, setDebts] = useState(() => {
     const saved = localStorage.getItem('kantongku_debts');
@@ -135,7 +136,7 @@ function App() {
   });
 
   const [sheetUrl, setSheetUrl] = useState(() => {
-    return localStorage.getItem('kantongku_sheet_url') || import.meta.env.VITE_GOOGLE_SHEET_URL || '';
+    return import.meta.env.VITE_GOOGLE_SHEET_URL || localStorage.getItem('kantongku_sheet_url') || '';
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isAutoSync, setIsAutoSync] = useState(() => {
@@ -153,18 +154,22 @@ function App() {
   const queryClient = useQueryClient();
 
   const syncMutation = useMutation({
-    mutationFn: async ({ singleTransaction, manualDebts, manualTrans }) => {
-      if (!sheetUrl) throw new Error('URL Sheet belum diset');
+    mutationFn: async (variables) => {
+      if (!sheetUrl) throw new Error('Sheet URL is missing');
+      const { singleTransaction, manualDebts, manualTrans } = variables;
+      
       const payload = singleTransaction 
-        ? { action: 'append', data: singleTransaction }
+        ? { action: 'add', transaction: singleTransaction }
         : { action: 'sync', transactions: manualTrans || transactions, debts: manualDebts || debts };
 
-      return fetch(sheetUrl, {
+      const response = await fetch(sheetUrl, {
         method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain' }, // Using text/plain to avoid CORS preflight issues with GAS
         body: JSON.stringify(payload)
       });
+
+      if (!response.ok) throw new Error('Network response was not ok');
+      return response;
     },
     onSuccess: (_, variables) => {
       if (!variables.singleTransaction && !variables.manualDebts) {
@@ -223,15 +228,53 @@ function App() {
     localStorage.setItem('kantongku_debts', JSON.stringify(debts));
   }, [debts]);
 
-  const { totalBalance, totalIncome, totalExpense } = useMemo(() => {
-    const income = transactions.filter(t => t.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
-    const expense = Math.abs(transactions.filter(t => t.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0));
+  // Debounced Auto-Sync to Cloud
+  useEffect(() => {
+    if (!isAutoSync || !sheetUrl) return;
+    
+    const timer = setTimeout(() => {
+      syncToCloud(null, debts, transactions);
+    }, 3000); // Sync after 3 seconds of inactivity
+
+    return () => clearTimeout(timer);
+  }, [transactions, debts, isAutoSync, sheetUrl]);
+
+  const { totalBalance, readyCash, totalIncome, totalExpense, totalPiutang, totalHutang, piutangCount, hutangCount } = useMemo(() => {
+    // 1. Saldo Utama (Main Balance)
+    const mainBalance = transactions.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    
+    // 2. Debt Calculations with explicit Numbers
+    const piutangVal = debts
+      .filter(d => !d.isSettled && d.type === 'piutang')
+      .reduce((acc, curr) => acc + (Number(curr.remainingAmount) || 0), 0);
+      
+    const hutangVal = debts
+      .filter(d => !d.isSettled && d.type === 'hutang')
+      .reduce((acc, curr) => acc + (Number(curr.remainingAmount) || 0), 0);
+    
+    // 3. Perkiraan Uangmu (Cuts on piutang)
+    const perkiraan = mainBalance - piutangVal;
+
+    // 4. Statistics (Pure analysis)
+    const income = transactions
+      .filter(t => t.type === 'income' && !['Pinjam Uang', 'Pelunasan'].includes(t.category))
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    
+    const expense = Math.abs(transactions
+      .filter(t => t.type === 'expense' && !['Beri Pinjaman', 'Pelunasan'].includes(t.category))
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+
     return {
-      totalBalance: transactions.reduce((acc, curr) => acc + curr.amount, 0),
+      totalBalance: mainBalance,
+      readyCash: perkiraan,
       totalIncome: income,
-      totalExpense: expense
+      totalExpense: expense,
+      totalPiutang: piutangVal,
+      totalHutang: hutangVal,
+      piutangCount: debts.filter(d => !d.isSettled && d.type === 'piutang').length,
+      hutangCount: debts.filter(d => !d.isSettled && d.type === 'hutang').length
     };
-  }, [transactions]);
+  }, [transactions, debts]);
 
   const handleAddTransaction = (e) => {
     e.preventDefault();
@@ -269,9 +312,13 @@ function App() {
         transactionId: newTransaction.id
       };
       setDebts([newDebt, ...debts]);
+      
+      // Based on user: Piutang/Hutang creation is JUST A RECORD/REMINDER.
+      // It DOES NOT affect the Main Balance (transactions) until settled.
+      // So we DO NOT call setTransactions here for debt type.
+    } else {
+      setTransactions([newTransaction, ...transactions]);
     }
-
-    setTransactions([newTransaction, ...transactions]);
     setFormData({ 
       title: '', 
       amount: '', 
@@ -281,80 +328,104 @@ function App() {
       dueDate: new Date().getDate().toString()
     });
     setShowAddModal(false);
-
-    if (isAutoSync) {
-      if (formData.type === 'debt') {
-        syncToCloud(); // Full sync for debt to update both sheets
-      } else {
-        syncToCloud(newTransaction);
-      }
-    }
   };
 
   const handleSettleDebt = (debt) => {
     const isInstallment = debt.totalInstallments > 1;
     const amountToPay = isInstallment ? debt.amountPerInstallment : debt.amount;
     
-    const settleTransaction = {
-      id: Date.now(),
-      title: isInstallment ? `Angsuran ${debt.installmentsPaid + 1}: ${debt.title}` : `Pelunasan: ${debt.title}`,
-      amount: debt.type === 'piutang' ? amountToPay : -amountToPay,
-      type: debt.type === 'piutang' ? 'income' : 'expense',
-      category: 'Pelunasan',
-      icon: isInstallment ? '📅' : '✅',
-      date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
-    };
+    triggerConfirm({
+      title: 'Pelunasan Catatan',
+      message: debt.type === 'piutang' 
+        ? `Selesaikan piutang senilai ${formatCurrency(amountToPay)}? Pilih 'Ya' untuk memasukkan ke Saldo Utama.`
+        : `Selesaikan hutang senilai ${formatCurrency(amountToPay)}? Pilih 'Ya' untuk memotong dari Saldo Utama.`,
+      confirmText: 'Ya, Update Saldo',
+      secondaryText: 'Hanya Catatan',
+      onConfirm: () => finalizeSettleDebt(debt, true, amountToPay),
+      onSecondary: () => finalizeSettleDebt(debt, false, amountToPay),
+      type: 'info',
+      showSecondary: true
+    });
+  };
 
-    setTransactions([settleTransaction, ...transactions]);
+  const finalizeSettleDebt = (debt, updateBalance, amountToPay) => {
+    const isInstallment = debt.totalInstallments > 1;
+    let settleTransaction = null;
     
+    if (updateBalance) {
+      settleTransaction = {
+        id: Date.now(),
+        title: isInstallment ? `Angsuran ${debt.installmentsPaid + 1}: ${debt.title}` : `Pelunasan: ${debt.title}`,
+        amount: debt.type === 'piutang' ? amountToPay : -amountToPay,
+        type: debt.type === 'piutang' ? 'income' : 'expense',
+        category: 'Pelunasan',
+        icon: isInstallment ? '📅' : '✅',
+        date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+        debtId: debt.id
+      };
+      setTransactions([settleTransaction, ...transactions]);
+    }
+
     const updatedDebts = debts.map(d => {
       if (d.id === debt.id) {
         const newPaidCount = d.installmentsPaid + 1;
-        const newRemaining = d.remainingAmount - amountToPay;
+        const isNowSettled = isInstallment ? newPaidCount >= d.totalInstallments : true;
         return { 
           ...d, 
           installmentsPaid: newPaidCount,
-          remainingAmount: newRemaining,
-          isSettled: newPaidCount >= d.totalInstallments || newRemaining <= 0
+          remainingAmount: Math.max(0, d.remainingAmount - amountToPay),
+          isSettled: isNowSettled
         };
       }
       return d;
     });
-
     setDebts(updatedDebts);
-    
-    if (isAutoSync) {
-      // Need to send the LATEST state, but setDebts is async. 
-      // So we pass the data explicitly or trigger a sync after state update.
-      // For simplicity and immediate action, we'll use a full sync.
-      // Note: In React, we should ideally use useEffect or a callback.
-      // Let's pass the updated data to syncToCloud.
-      syncToCloud(null, updatedDebts, [settleTransaction, ...transactions]);
-    }
   };
 
   const handleDeleteDebt = (id) => {
-    if (window.confirm('Hapus catatan ini?')) {
-      setDebts(debts.filter(d => d.id !== id));
-    }
+    triggerConfirm({
+      title: 'Hapus Catatan',
+      message: 'Hapus catatan ini dan semua riwayat transaksi terkait?',
+      type: 'danger',
+      confirmText: 'Hapus Semua',
+      onConfirm: () => {
+        const debtToDelete = debts.find(d => d.id === id);
+        const newTransactions = transactions.filter(t => 
+          t.debtId !== id && 
+          (!debtToDelete || t.id !== debtToDelete.transactionId)
+        );
+        const newDebts = debts.filter(d => d.id !== id);
+        setTransactions(newTransactions);
+        setDebts(newDebts);
+      }
+    });
   };
 
   const handleResetData = () => {
-    if (window.confirm('PERINGATAN: Semua data transaksi, hutang, dan pengaturan akan dihapus secara permanen. Lanjutkan?')) {
-      localStorage.clear();
-      setTransactions(MOCK_TRANSACTIONS);
-      setDebts([]);
-      setSheetUrl('');
-      setIsAutoSync(false);
-      alert('Data berhasil direset.');
-      window.location.reload();
-    }
+    triggerConfirm({
+      title: 'Reset Seluruh Data',
+      message: 'Semua data transaksi, hutang, dan pengaturan akan dihapus secara permanen. Tindakan ini tidak dapat dibatalkan.',
+      type: 'danger',
+      confirmText: 'Reset Sekarang',
+      onConfirm: () => {
+        localStorage.clear();
+        window.location.reload();
+      }
+    });
   };
 
   const handleDeleteTransaction = (id) => {
-    if (window.confirm('Hapus transaksi ini?')) {
-      setTransactions(transactions.filter(t => t.id !== id));
-    }
+    triggerConfirm({
+      title: 'Hapus Transaksi',
+      message: 'Apakah Anda yakin ingin menghapus transaksi ini?',
+      type: 'danger',
+      confirmText: 'Hapus',
+      onConfirm: () => {
+        const deleted = transactions.find(t => t.id === id);
+        const newTransactions = transactions.filter(t => t.id !== id);
+        setTransactions(newTransactions);
+      }
+    });
   };
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -397,9 +468,11 @@ function App() {
 
   const dynamicPieData = useMemo(() => {
     const categories = {};
-    transactions.filter(t => t.type === 'expense').forEach(t => {
-      categories[t.category] = (categories[t.category] || 0) + Math.abs(t.amount);
-    });
+    transactions
+      .filter(t => t.type === 'expense')
+      .forEach(t => {
+        categories[t.category] = (categories[t.category] || 0) + Math.abs(t.amount);
+      });
 
     const colors = ['#6366f1', '#a855f7', '#f43f5e', '#10b981', '#f59e0b', '#3b82f6'];
     const data = Object.keys(categories).map((name, i) => ({
@@ -410,6 +483,37 @@ function App() {
 
     return data.length > 0 ? data : PIE_DATA_DEFAULT;
   }, [transactions]);
+
+  // Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    onSecondary: null,
+    confirmText: 'Ya',
+    secondaryText: 'Tidak',
+    cancelText: 'Batal',
+    type: 'info', // 'danger', 'info', 'success'
+    showSecondary: false
+  });
+
+  const closeConfirm = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
+
+  const triggerConfirm = (config) => {
+    setConfirmModal({
+      isOpen: true,
+      title: config.title || 'Konfirmasi',
+      message: config.message || '',
+      onConfirm: () => { config.onConfirm?.(); closeConfirm(); },
+      onSecondary: config.onSecondary ? () => { config.onSecondary?.(); closeConfirm(); } : null,
+      confirmText: config.confirmText || 'Ya',
+      secondaryText: config.secondaryText || 'Tidak',
+      cancelText: config.cancelText || 'Batal',
+      type: config.type || 'info',
+      showSecondary: !!config.onSecondary
+    });
+  };
 
   const financialHealth = useMemo(() => {
     const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
@@ -462,7 +566,15 @@ function App() {
   };
 
   const parseRupiah = (value) => {
+    if (!value) return '';
     return value.toString().replace(/[^0-9]/g, '');
+  };
+
+  const getAmountClass = (t) => {
+    if (t.category === 'Beri Pinjaman') return 'debt-out';
+    if (t.category === 'Pinjam Uang') return 'debt-in';
+    if (t.category === 'Pelunasan') return 'debt-settle';
+    return t.type;
   };
 
   return (
@@ -541,8 +653,12 @@ function App() {
               transition={{ duration: 0.5 }}
             >
               <div className="card-top">
-                <p>Total Saldo</p>
+                <p>Saldo Utama</p>
                 <h1 className="total-balance">{formatCurrency(totalBalance)}</h1>
+                <div className="real-cash-info">
+                  <Wallet size={14} />
+                  <span>Perkiraan Uangmu: {formatCurrency(readyCash)}</span>
+                </div>
               </div>
               <div className="card-stats">
                 <div className="stat">
@@ -565,6 +681,41 @@ function App() {
                 </div>
               </div>
             </motion.div>
+            
+            {/* Debt Stats Card */}
+            <section className="section">
+              <div className="section-header">
+                <h3>Status Piutang & Hutang</h3>
+                <button className="text-btn" onClick={() => setActiveTab('debts')}>Lihat Detail</button>
+              </div>
+              <motion.div 
+                className="debt-summary-row"
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.1 }}
+              >
+                <div className="debt-stat-card glass-card piutang" onClick={() => setActiveTab('debts')}>
+                  <div className="d-stat-icon">
+                    <HandCoins size={16} />
+                  </div>
+                  <div className="d-stat-info">
+                    <p>Total Piutang</p>
+                    <h4>{formatCurrency(totalPiutang)}</h4>
+                    <span className="d-count">{piutangCount} Catatan Aktif</span>
+                  </div>
+                </div>
+                <div className="debt-stat-card glass-card hutang" onClick={() => setActiveTab('debts')}>
+                  <div className="d-stat-icon">
+                    <Wallet size={16} />
+                  </div>
+                  <div className="d-stat-info">
+                    <p>Total Hutang</p>
+                    <h4>{formatCurrency(totalHutang)}</h4>
+                    <span className="d-count">{hutangCount} Catatan Aktif</span>
+                  </div>
+                </div>
+              </motion.div>
+            </section>
 
             {/* Advice Card */}
             <motion.div 
@@ -617,7 +768,7 @@ function App() {
                       <p className="t-category">{t.category}</p>
                     </div>
                     <div className="t-actions">
-                      <p className={`t-amount ${t.type}`}>
+                      <p className={`t-amount ${getAmountClass(t)}`}>
                         {t.amount > 0 ? '+' : ''}{formatCurrency(t.amount)}
                       </p>
                       <button className="delete-btn" onClick={() => handleDeleteTransaction(t.id)}>
@@ -680,6 +831,22 @@ function App() {
                     <span className="legend-value">{formatCurrency(item.value)}</span>
                   </div>
                 ))}
+              </div>
+            </section>
+
+            <section className="section">
+              <h3>Ringkasan Piutang & Hutang</h3>
+              <div className="stats-header-grid">
+                <div className="stat-metric glass-card">
+                  <p>Rasio Piutang</p>
+                  <h3>{((totalPiutang / (totalBalance || 1)) * 100).toFixed(1)}%</h3>
+                  <span>dari saldo utama</span>
+                </div>
+                <div className="stat-metric glass-card">
+                  <p>Total Komitmen</p>
+                  <h3>{piutangCount + hutangCount}</h3>
+                  <span>catatan aktif</span>
+                </div>
               </div>
             </section>
           </motion.div>
@@ -756,7 +923,7 @@ function App() {
             animate={{ opacity: 1, y: 0 }}
           >
             <section className="section">
-              <h3>Riwayat Lengkap</h3>
+              <h3>Riwayat Transaksi</h3>
               <div className="transaction-list">
                 {filteredTransactions.map((t, i) => (
                   <motion.div 
@@ -774,7 +941,7 @@ function App() {
                       <p className="t-category">{t.category} • {t.date}</p>
                     </div>
                     <div className="t-actions">
-                      <p className={`t-amount ${t.type}`}>
+                      <p className={`t-amount ${getAmountClass(t)}`}>
                         {t.amount > 0 ? '+' : ''}{formatCurrency(t.amount)}
                       </p>
                       <button className="delete-btn" onClick={() => handleDeleteTransaction(t.id)}>
@@ -978,7 +1145,7 @@ function App() {
                     className={`type-btn debt ${formData.type === 'debt' ? 'active' : ''}`}
                     onClick={() => setFormData({...formData, type: 'debt', category: 'piutang'})}
                   >
-                    Hutang
+                    Piutang/Hutang
                   </button>
                 </div>
 
@@ -1083,6 +1250,40 @@ function App() {
         )}
       </AnimatePresence>
 
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {confirmModal.isOpen && (
+          <div className="modal-overlay" onClick={closeConfirm}>
+            <motion.div 
+              className="confirm-modal glass-card"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className={`confirm-icon-header ${confirmModal.type}`}>
+                {confirmModal.type === 'danger' ? <Trash2 size={32} /> : <AlertCircle size={32} />}
+              </div>
+              <h3>{confirmModal.title}</h3>
+              <p>{confirmModal.message}</p>
+              
+              <div className="confirm-actions">
+                {confirmModal.showSecondary && (
+                  <button className="secondary-btn" onClick={confirmModal.onSecondary}>
+                    {confirmModal.secondaryText}
+                  </button>
+                )}
+                <button className={`primary-btn ${confirmModal.type}`} onClick={confirmModal.onConfirm}>
+                  {confirmModal.confirmText}
+                </button>
+                <button className="cancel-btn" onClick={closeConfirm}>
+                  {confirmModal.cancelText}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

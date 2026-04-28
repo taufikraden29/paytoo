@@ -120,6 +120,20 @@
   letter-spacing: -0.5px;
 }
 
+.real-cash-info {
+  font-size: 0.85rem;
+  opacity: 0.9;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 6px 12px;
+  border-radius: 12px;
+  width: fit-content;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
 .card-stats {
   display: flex;
   justify-content: space-between;
@@ -233,6 +247,9 @@
 
 .t-amount.income { color: var(--income); }
 .t-amount.expense { color: var(--text-primary); }
+.t-amount.debt-out { color: #8b5cf6; }
+.t-amount.debt-in { color: #f59e0b; }
+.t-amount.debt-settle { color: #10b981; }
 
 .fab-btn {
   position: fixed;
@@ -1186,4 +1203,148 @@ input:checked + .slider {
 
 input:checked + .slider:before {
   transform: translateX(20px);
+}
+
+/* Debt Summary Card on Home */
+.debt-summary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.debt-stat-card {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid var(--glass-border) !important;
+}
+
+.debt-stat-card:active {
+  transform: scale(0.98);
+  background: var(--glass-hover);
+}
+
+.debt-stat-card.piutang .d-stat-icon {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+}
+
+.debt-stat-card.hutang .d-stat-icon {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.d-stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.d-stat-info p {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.d-stat-info h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.d-count {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
+  margin-top: 2px;
+}
+/* Confirm Modal Styles */
+.confirm-modal {
+  width: 90%;
+  max-width: 400px;
+  padding: 2rem;
+  text-align: center;
+  border-radius: 24px;
+}
+
+.confirm-icon-header {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1.5rem;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-icon-header.danger {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.confirm-icon-header.info {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.confirm-modal h3 {
+  font-size: 1.25rem;
+  margin-bottom: 0.75rem;
+  color: var(--text-primary);
+}
+
+.confirm-modal p {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 2rem;
+}
+
+.confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.confirm-actions button {
+  width: 100%;
+  padding: 1rem;
+  border-radius: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.confirm-actions .primary-btn.danger {
+  background: #ef4444;
+  color: white;
+}
+
+.confirm-actions .primary-btn.info {
+  background: var(--accent);
+  color: white;
+}
+
+.confirm-actions .secondary-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.confirm-actions .cancel-btn {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.confirm-actions button:active {
+  transform: scale(0.98);
 }
