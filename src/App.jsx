@@ -24,7 +24,10 @@ import {
   TrendingDown,
   TrendingUp,
   Lightbulb,
-  AlertCircle
+  AlertCircle,
+  Calculator,
+  Copy,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -431,6 +434,12 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [calcDisplay, setCalcDisplay] = useState('0');
+  const [calcPrevValue, setCalcPrevValue] = useState(null);
+  const [calcOperator, setCalcOperator] = useState(null);
+  const [calcWaitingForOperand, setCalcWaitingForOperand] = useState(false);
+  const [calcCopied, setCalcCopied] = useState(false);
 
   const NOTIFICATIONS = [
     { id: 1, text: 'Pengeluaran Anda naik 10% minggu ini', time: '2j yang lalu' },
@@ -577,6 +586,85 @@ function App() {
     return t.type;
   };
 
+  // Calculator Logic
+  const inputDigit = (digit) => {
+    if (calcWaitingForOperand) {
+      setCalcDisplay(String(digit));
+      setCalcWaitingForOperand(false);
+    } else {
+      setCalcDisplay(calcDisplay === '0' ? String(digit) : calcDisplay + digit);
+    }
+  };
+
+  const inputDot = () => {
+    if (calcWaitingForOperand) {
+      setCalcDisplay('0.');
+      setCalcWaitingForOperand(false);
+    } else if (calcDisplay.indexOf('.') === -1) {
+      setCalcDisplay(calcDisplay + '.');
+    }
+  };
+
+  const clearDisplay = () => {
+    setCalcDisplay('0');
+    setCalcPrevValue(null);
+    setCalcOperator(null);
+    setCalcWaitingForOperand(false);
+  };
+
+  const performOperation = (nextOperator) => {
+    const inputValue = parseFloat(calcDisplay);
+
+    if (calcPrevValue === null) {
+      setCalcPrevValue(inputValue);
+    } else if (calcOperator) {
+      const currentValue = calcPrevValue || 0;
+      const newValue = calculateResult(currentValue, inputValue, calcOperator);
+      setCalcPrevValue(nextOperator === '=' ? null : newValue);
+      setCalcDisplay(String(newValue));
+    }
+
+    setCalcWaitingForOperand(true);
+    setCalcOperator(nextOperator === '=' ? null : nextOperator);
+  };
+
+  const calculateResult = (left, right, operator) => {
+    switch (operator) {
+      case '+': return left + right;
+      case '-': return left - right;
+      case '*': return left * right;
+      case '/': return left / right;
+      default: return right;
+    }
+  };
+
+  const handleCopyCalc = () => {
+    navigator.clipboard.writeText(calcDisplay);
+    setCalcCopied(true);
+    setTimeout(() => setCalcCopied(false), 2000);
+  };
+
+  const formatCalcDisplay = (val) => {
+    if (val === null || val === undefined) return '';
+    const strVal = String(val);
+    if (strVal === '0' || strVal === '') return 'Rp 0';
+    
+    const parts = strVal.split('.');
+    const integerPart = parts[0];
+    const decimalPart = parts.length > 1 ? parts[1] : null;
+    
+    const formattedInteger = new Intl.NumberFormat('id-ID').format(integerPart);
+    
+    let result = `Rp ${formattedInteger}`;
+    if (decimalPart !== null) {
+      result += `,${decimalPart}`;
+    } else if (strVal.endsWith('.')) {
+      result += ',';
+    }
+    
+    return result;
+  };
+
   return (
     <div className="app-container">
       {/* Header */}
@@ -591,6 +679,9 @@ function App() {
           </div>
         </div>
         <div className="header-actions">
+          <button className="icon-btn" onClick={() => setShowCalculator(true)} title="Kalkulator">
+            <Calculator size={20} />
+          </button>
           <button className="icon-btn" onClick={() => setShowSearch(!showSearch)}><Search size={20} /></button>
           <button className="icon-btn" onClick={() => setShowNotifications(!showNotifications)}>
             <Bell size={20} />
@@ -1247,6 +1338,64 @@ function App() {
               </form>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Calculator Modal */}
+      <AnimatePresence>
+        {showCalculator && (
+          <div className="modal-overlay" onClick={() => setShowCalculator(false)}>
+            <motion.div 
+              className="calculator-modal glass-card"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="calc-header">
+                <h3>Kalkulator</h3>
+                <button className="close-btn" onClick={() => setShowCalculator(false)}><X size={20} /></button>
+              </div>
+
+              <div className="calc-display-container glass-card">
+                <div className="calc-prev-value">
+                  {calcPrevValue !== null && `${formatCalcDisplay(calcPrevValue)} ${calcOperator || ''}`}
+                </div>
+                <div className="calc-main-display">
+                  {formatCalcDisplay(calcDisplay)}
+                </div>
+                <button className="calc-copy-btn" onClick={handleCopyCalc}>
+                  {calcCopied ? <Check size={18} color="#10b981" /> : <Copy size={18} />}
+                </button>
+              </div>
+
+              <div className="calc-grid">
+                <button className="calc-btn utility" onClick={clearDisplay}>AC</button>
+                <button className="calc-btn utility" onClick={() => setCalcDisplay(String(-parseFloat(calcDisplay)))}>±</button>
+                <button className="calc-btn utility" onClick={() => setCalcDisplay(String(parseFloat(calcDisplay) / 100))}>%</button>
+                <button className="calc-btn operator" onClick={() => performOperation('/')}>÷</button>
+
+                <button className="calc-btn" onClick={() => inputDigit(7)}>7</button>
+                <button className="calc-btn" onClick={() => inputDigit(8)}>8</button>
+                <button className="calc-btn" onClick={() => inputDigit(9)}>9</button>
+                <button className="calc-btn operator" onClick={() => performOperation('*')}>×</button>
+
+                <button className="calc-btn" onClick={() => inputDigit(4)}>4</button>
+                <button className="calc-btn" onClick={() => inputDigit(5)}>5</button>
+                <button className="calc-btn" onClick={() => inputDigit(6)}>6</button>
+                <button className="calc-btn operator" onClick={() => performOperation('-')}>−</button>
+
+                <button className="calc-btn" onClick={() => inputDigit(1)}>1</button>
+                <button className="calc-btn" onClick={() => inputDigit(2)}>2</button>
+                <button className="calc-btn" onClick={() => inputDigit(3)}>3</button>
+                <button className="calc-btn operator" onClick={() => performOperation('+')}>+</button>
+
+                <button className="calc-btn double" onClick={() => inputDigit(0)}>0</button>
+                <button className="calc-btn" onClick={() => inputDot()}>.</button>
+                <button className="calc-btn operator equals" onClick={() => performOperation('=')}>=</button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
