@@ -444,25 +444,41 @@
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.legend-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.legend-text {
+  display: flex;
+  flex-direction: column;
 }
 
 .legend-color {
-  width: 12px;
-  height: 12px;
-  border-radius: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
 }
 
 .legend-name {
   font-size: 0.85rem;
-  flex: 1;
+  font-weight: 500;
+}
+
+.legend-percentage {
+  font-size: 0.7rem;
+  color: var(--text-dim);
 }
 
 .legend-value {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .placeholder-view {
@@ -1126,6 +1142,105 @@
   height: 100%;
   background: var(--accent-primary);
   border-radius: 10px;
+}
+
+.stats-insights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.insight-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.insight-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.insight-info p {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.insight-info h4 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.insight-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  margin-bottom: 8px;
+  border-left: 4px solid var(--accent-primary);
+}
+
+.insight-summary-bar p {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.stats-filter-tabs {
+  display: flex;
+  background: var(--bg-accent);
+  padding: 4px;
+  border-radius: 12px;
+  gap: 4px;
+}
+
+.filter-tab {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-tab.active {
+  background: var(--accent-primary);
+  color: white;
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.2);
+}
+
+.pie-center-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.pie-center-label p {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.pie-center-label span {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .cloud-tip {

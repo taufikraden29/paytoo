@@ -292,7 +292,9 @@ function App() {
       type: formData.type === 'debt' ? (formData.category === 'piutang' ? 'expense' : 'income') : formData.type,
       category: selectedCat.name,
       icon: selectedCat.icon,
-      date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+      date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+      timestamp: Date.now(),
+      isoDate: new Date().toISOString()
     };
 
     if (formData.type === 'debt') {
@@ -440,6 +442,34 @@ function App() {
   const [calcOperator, setCalcOperator] = useState(null);
   const [calcWaitingForOperand, setCalcWaitingForOperand] = useState(false);
   const [calcCopied, setCalcCopied] = useState(false);
+  const [statsFilter, setStatsFilter] = useState('weekly'); // 'daily', 'weekly', 'monthly'
+
+  const homeChartData = useMemo(() => {
+    const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const last7Days = [...Array(7)].map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      return {
+        label: days[d.getDay()],
+        dateStr: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+        amount: 0
+      };
+    });
+
+    transactions.forEach(t => {
+      const tDateObj = t.isoDate ? new Date(t.isoDate) : null;
+      let dateStr = t.date;
+      if (tDateObj) {
+        dateStr = tDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+      }
+      const dayData = last7Days.find(d => d.dateStr === dateStr);
+      if (dayData && t.type === 'expense') {
+        dayData.amount += Math.abs(t.amount);
+      }
+    });
+
+    return last7Days;
+  }, [transactions]);
 
   const NOTIFICATIONS = [
     { id: 1, text: 'Pengeluaran Anda naik 10% minggu ini', time: '2j yang lalu' },
@@ -454,26 +484,114 @@ function App() {
   }, [transactions, searchQuery]);
 
   const dynamicChartData = useMemo(() => {
-    const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-    const last7Days = [...Array(7)].map((_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (6 - i));
-      return {
-        day: days[d.getDay()],
-        dateStr: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
-        amount: 0
-      };
-    });
+    const now = new Date();
+    
+    if (statsFilter === 'daily') {
+      // Last 7 days, individually
+      const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+      const last7Days = [...Array(7)].map((_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        return {
+          label: days[d.getDay()],
+          dateStr: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+          amount: 0,
+          income: 0
+        };
+      });
 
-    transactions.forEach(t => {
-      const dayData = last7Days.find(d => d.dateStr === t.date);
-      if (dayData && t.type === 'expense') {
-        dayData.amount += Math.abs(t.amount);
-      }
-    });
+      transactions.forEach(t => {
+        const tDateObj = t.isoDate ? new Date(t.isoDate) : null;
+        let dateStr = t.date;
+        
+        if (tDateObj) {
+          dateStr = tDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+        }
 
-    return last7Days;
-  }, [transactions]);
+        const item = last7Days.find(d => d.dateStr === dateStr);
+        if (item) {
+          if (t.type === 'expense') item.amount += Math.abs(t.amount);
+          if (t.type === 'income') item.income += Math.abs(t.amount);
+        }
+      });
+      return last7Days;
+
+    } else if (statsFilter === 'weekly') {
+      // Last 4 weeks
+      const weeks = [...Array(4)].map((_, i) => {
+        const start = new Date();
+        start.setDate(start.getDate() - (3 - i) * 7 - start.getDay()); // Start of week (Sunday)
+        start.setHours(0,0,0,0);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 6);
+        end.setHours(23,59,59,999);
+        
+        return {
+          label: `W${4-i}`,
+          range: `${start.getDate()}/${start.getMonth()+1} - ${end.getDate()}/${end.getMonth()+1}`,
+          amount: 0,
+          income: 0,
+          startDate: start,
+          endDate: end
+        };
+      });
+
+      transactions.forEach(t => {
+        let tDate;
+        if (t.isoDate) {
+          tDate = new Date(t.isoDate);
+        } else {
+          const [day, monthStr] = t.date.split(' ');
+          const monthMap = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'Mei': 4, 'Jun': 5, 'Jul': 6, 'Agu': 7, 'Sep': 8, 'Okt': 9, 'Nov': 10, 'Des': 11 };
+          tDate = new Date(now.getFullYear(), monthMap[monthStr] || 0, parseInt(day));
+        }
+        
+        weeks.forEach(w => {
+          if (tDate >= w.startDate && tDate <= w.endDate) {
+            if (t.type === 'expense') w.amount += Math.abs(t.amount);
+            if (t.type === 'income') w.income += Math.abs(t.amount);
+          }
+        });
+      });
+      return weeks;
+
+    } else {
+      // Monthly (Last 6 months)
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+      const last6Months = [...Array(6)].map((_, i) => {
+        const d = new Date();
+        d.setMonth(d.getMonth() - (5 - i));
+        return {
+          label: months[d.getMonth()],
+          monthIdx: d.getMonth(),
+          year: d.getFullYear(),
+          amount: 0,
+          income: 0
+        };
+      });
+
+      transactions.forEach(t => {
+        let tDate;
+        if (t.isoDate) {
+          tDate = new Date(t.isoDate);
+        } else {
+          const [day, monthStr] = t.date.split(' ');
+          const monthMap = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'Mei': 4, 'Jun': 5, 'Jul': 6, 'Agu': 7, 'Sep': 8, 'Okt': 9, 'Nov': 10, 'Des': 11 };
+          tDate = new Date(now.getFullYear(), monthMap[monthStr] || 0, parseInt(day));
+        }
+        
+        const tMonth = tDate.getMonth();
+        const tYear = tDate.getFullYear();
+        
+        const item = last6Months.find(m => m.monthIdx === tMonth && m.year === tYear);
+        if (item) {
+          if (t.type === 'expense') item.amount += Math.abs(t.amount);
+          if (t.type === 'income') item.income += Math.abs(t.amount);
+        }
+      });
+      return last6Months;
+    }
+  }, [transactions, statsFilter]);
 
   const dynamicPieData = useMemo(() => {
     const categories = {};
@@ -526,17 +644,35 @@ function App() {
 
   const financialHealth = useMemo(() => {
     const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
-    const avgDaily = totalExpense / new Date().getDate();
+    const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+    const currentDay = new Date().getDate();
+    const avgDaily = totalExpense / currentDay;
     
+    // Top Categories for insights
+    const catTotals = {};
+    transactions.filter(t => t.type === 'expense').forEach(t => {
+      catTotals[t.category] = (catTotals[t.category] || 0) + Math.abs(t.amount);
+    });
+    const sortedCats = Object.entries(catTotals).sort(([,a], [,b]) => b - a);
+    const topCategory = sortedCats[0]?.[0] || 'Belum ada';
+
+    // Peak transaction
+    const peakTrans = transactions
+      .filter(t => t.type === 'expense')
+      .reduce((max, t) => Math.abs(t.amount) > Math.abs(max?.amount || 0) ? t : max, null);
+
     let advice = {
       title: 'Keuangan Aman!',
       text: 'Pertahankan pola pengeluaran Anda. Tabungan Anda bulan ini cukup baik.',
       icon: <Zap size={24} color="#10b981" />,
-      color: 'green'
+      color: 'green',
+      topCategory,
+      peakTrans
     };
 
     if (savingsRate < 10) {
       advice = {
+        ...advice,
         title: 'Waspada Pengeluaran!',
         text: 'Tabungan Anda di bawah 10%. Coba kurangi pengeluaran yang kurang perlu.',
         icon: <TrendingDown size={24} color="#ef4444" />,
@@ -544,6 +680,7 @@ function App() {
       };
     } else if (savingsRate > 50) {
       advice = {
+        ...advice,
         title: 'Luar Biasa!',
         text: 'Anda sangat hemat bulan ini! Pertimbangkan untuk berinvestasi.',
         icon: <TrendingUp size={24} color="#6366f1" />,
@@ -556,8 +693,30 @@ function App() {
       advice.extra = `Ada ${unSettledDebts} piutang yang belum tertagih.`;
     }
 
-    return { savingsRate, avgDaily, advice };
-  }, [totalIncome, totalExpense, debts]);
+    // Behavioral Insight
+    const weekendExpense = transactions
+      .filter(t => {
+        const d = t.isoDate ? new Date(t.isoDate) : null;
+        return d && (d.getDay() === 0 || d.getDay() === 6);
+      })
+      .reduce((acc, t) => acc + Math.abs(t.amount), 0);
+    
+    const weekdayExpense = transactions
+      .filter(t => {
+        const d = t.isoDate ? new Date(t.isoDate) : null;
+        return d && (d.getDay() > 0 && d.getDay() < 6);
+      })
+      .reduce((acc, t) => acc + Math.abs(t.amount), 0);
+
+    let behaviorText = "Pola pengeluaran Anda terlihat stabil.";
+    if (weekendExpense > weekdayExpense) {
+      behaviorText = "Pengeluaran Anda cenderung meningkat di akhir pekan.";
+    } else if (totalExpense > totalIncome * 0.8) {
+      behaviorText = "Hampir seluruh pemasukan terpakai. Coba evaluasi pengeluaran.";
+    }
+
+    return { savingsRate, avgDaily, advice, topCategory, peakTrans, behaviorText };
+  }, [totalIncome, totalExpense, debts, transactions]);
 
   const formatCurrency = (val) => {
     return new Intl.NumberFormat('id-ID', {
@@ -825,14 +984,13 @@ function App() {
               </div>
             </motion.div>
 
-            {/* Weekly Chart */}
             <section className="section">
               <div className="section-header">
                 <h3>Analisis Mingguan</h3>
                 <button className="text-btn" onClick={() => setActiveTab('stats')}>Lihat Detail</button>
               </div>
               <div className="chart-container glass-card">
-                <WeeklyChart data={dynamicChartData} />
+                <WeeklyChart data={homeChartData} />
               </div>
             </section>
 
@@ -892,41 +1050,187 @@ function App() {
               </div>
             </div>
 
+            <motion.div 
+              className="insight-summary-bar glass-card"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+            >
+              <Lightbulb size={18} color="var(--accent-primary)" />
+              <p>{financialHealth.behaviorText}</p>
+            </motion.div>
+
             <section className="section">
-              <h3>Distribusi Pengeluaran</h3>
-              <div className="chart-container glass-card" style={{ height: '300px' }}>
+              <div className="section-header">
+                <h3>Analisis Pengeluaran</h3>
+                <div className="stats-filter-tabs">
+                  <button 
+                    className={`filter-tab ${statsFilter === 'daily' ? 'active' : ''}`}
+                    onClick={() => setStatsFilter('daily')}
+                  >Harian</button>
+                  <button 
+                    className={`filter-tab ${statsFilter === 'weekly' ? 'active' : ''}`}
+                    onClick={() => setStatsFilter('weekly')}
+                  >Mingguan</button>
+                  <button 
+                    className={`filter-tab ${statsFilter === 'monthly' ? 'active' : ''}`}
+                    onClick={() => setStatsFilter('monthly')}
+                  >Bulanan</button>
+                </div>
+              </div>
+              <div className="chart-container glass-card" style={{ height: '240px' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={dynamicChartData}>
+                    <defs>
+                      <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                    <XAxis 
+                      dataKey="label" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 10, fill: 'var(--text-dim)' }}
+                    />
+                    <YAxis hide />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', color: '#fff', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)' }}
+                      itemStyle={{ color: '#fff' }}
+                      formatter={(value) => formatCurrency(value)}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="amount" 
+                      name="Pengeluaran"
+                      stroke="#6366f1" 
+                      fillOpacity={1} 
+                      fill="url(#colorExpense)" 
+                      strokeWidth={3}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="income" 
+                      name="Pemasukan"
+                      stroke="#10b981" 
+                      fillOpacity={1} 
+                      fill="url(#colorIncome)" 
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+
+            <section className="section">
+              <div className="stats-insights-grid">
+                <div className="insight-card glass-card">
+                  <div className="insight-icon" style={{ background: 'rgba(244, 63, 94, 0.1)', color: '#f43f5e' }}>
+                    <TrendingDown size={18} />
+                  </div>
+                  <div className="insight-info">
+                    <p>Terboros</p>
+                    <h4>{financialHealth.topCategory}</h4>
+                  </div>
+                </div>
+                <div className="insight-card glass-card">
+                  <div className="insight-icon" style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1' }}>
+                    <Zap size={18} />
+                  </div>
+                  <div className="insight-info">
+                    <p>Puncak Sesi</p>
+                    <h4>{financialHealth.peakTrans ? formatCurrency(Math.abs(financialHealth.peakTrans.amount)) : 'Rp 0'}</h4>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="section">
+              <div className="section-header">
+                <h3>Distribusi Kategori</h3>
+                <span className="text-dim text-xs">Berdasarkan Pengeluaran</span>
+              </div>
+              <div className="chart-container glass-card" style={{ height: '280px', position: 'relative' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={dynamicPieData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
+                      innerRadius={65}
+                      outerRadius={85}
+                      paddingAngle={8}
                       dataKey="value"
                     >
                       {dynamicPieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
+                        <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
+                      formatter={(value) => formatCurrency(value)}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
+                <div className="pie-center-label">
+                  <p>Total</p>
+                  <span>{formatCurrency(totalExpense)}</span>
+                </div>
               </div>
               <div className="category-legend">
-                {dynamicPieData.map((item) => (
-                  <div key={item.name} className="legend-item glass-card">
-                    <div className="legend-color" style={{ backgroundColor: item.color }} />
-                    <span className="legend-name">{item.name}</span>
-                    <span className="legend-value">{formatCurrency(item.value)}</span>
-                  </div>
-                ))}
+                {dynamicPieData.map((item) => {
+                  const percentage = totalExpense > 0 ? (item.value / totalExpense) * 100 : 0;
+                  return (
+                    <div key={item.name} className="legend-item glass-card">
+                      <div className="legend-main">
+                        <div className="legend-color" style={{ backgroundColor: item.color }} />
+                        <div className="legend-text">
+                          <span className="legend-name">{item.name}</span>
+                          <span className="legend-percentage">{percentage.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                      <span className="legend-value">{formatCurrency(item.value)}</span>
+                    </div>
+                  );
+                })}
               </div>
             </section>
 
             <section className="section">
-              <h3>Ringkasan Piutang & Hutang</h3>
+              <h3>Transaksi Terbesar</h3>
+              <div className="transaction-list">
+                {transactions
+                  .filter(t => t.type === 'expense')
+                  .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+                  .slice(0, 3)
+                  .map((t, i) => (
+                    <div key={t.id} className="transaction-item glass-card" style={{ padding: '12px 16px' }}>
+                      <div className="t-icon-box" style={{ width: '40px', height: '40px', fontSize: '1.1rem' }}>
+                        <span>{t.icon || '💸'}</span>
+                      </div>
+                      <div className="t-info">
+                        <p className="t-title" style={{ fontSize: '0.85rem' }}>{t.title}</p>
+                        <p className="t-category">{t.date}</p>
+                      </div>
+                      <div className="t-actions">
+                        <p className="t-amount expense" style={{ fontSize: '0.9rem' }}>{formatCurrency(t.amount)}</p>
+                      </div>
+                    </div>
+                  ))
+                }
+                {transactions.filter(t => t.type === 'expense').length === 0 && (
+                  <div className="placeholder-view glass-card" style={{ height: '80px' }}>Belum ada pengeluaran</div>
+                )}
+              </div>
+            </section>
+
+            <section className="section" style={{ marginBottom: '40px' }}>
+              <h3>Ringkasan Komitmen</h3>
               <div className="stats-header-grid">
                 <div className="stat-metric glass-card">
                   <p>Rasio Piutang</p>
