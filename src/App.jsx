@@ -242,7 +242,7 @@ function App() {
     return () => clearTimeout(timer);
   }, [transactions, debts, isAutoSync, sheetUrl]);
 
-  const { totalBalance, readyCash, totalIncome, totalExpense, totalPiutang, totalHutang, piutangCount, hutangCount } = useMemo(() => {
+  const { totalBalance, readyCash, totalIncome, totalExpense, totalPiutang, totalHutang, piutangCount, hutangCount, todayStats } = useMemo(() => {
     // 1. Saldo Utama (Main Balance)
     const mainBalance = transactions.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
     
@@ -275,7 +275,14 @@ function App() {
       totalPiutang: piutangVal,
       totalHutang: hutangVal,
       piutangCount: debts.filter(d => !d.isSettled && d.type === 'piutang').length,
-      hutangCount: debts.filter(d => !d.isSettled && d.type === 'hutang').length
+      hutangCount: debts.filter(d => !d.isSettled && d.type === 'hutang').length,
+      todayStats: (() => {
+        const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+        const todayTrans = transactions.filter(t => t.date === today);
+        const tIncome = todayTrans.filter(t => t.type === 'income').reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+        const tExpense = Math.abs(todayTrans.filter(t => t.type === 'expense').reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+        return { income: tIncome, expense: tExpense, net: tIncome - tExpense, count: todayTrans.length };
+      })()
     };
   }, [transactions, debts]);
 
@@ -928,6 +935,43 @@ function App() {
                     <p>Pengeluaran</p>
                     <p className="stat-amount">{formatCurrency(totalExpense)}</p>
                   </div>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Today Summary Card */}
+            <motion.div 
+              className="today-card glass-card"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.05 }}
+            >
+              <div className="today-header">
+                <div className="today-title">
+                  <div className="today-badge">Hari Ini</div>
+                  <h3>Total Transaksi</h3>
+                </div>
+                <div className="today-count">{todayStats.count} Transaksi</div>
+              </div>
+              <div className="today-grid">
+                <div className="today-item income">
+                  <div className="today-icon"><TrendingUp size={14} /></div>
+                  <div className="today-info">
+                    <p>Pemasukan</p>
+                    <p className="today-amount">+{formatCurrency(todayStats.income)}</p>
+                  </div>
+                </div>
+                <div className="today-item expense">
+                  <div className="today-icon"><TrendingDown size={14} /></div>
+                  <div className="today-info">
+                    <p>Pengeluaran</p>
+                    <p className="today-amount">-{formatCurrency(todayStats.expense)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="today-net-row">
+                <div className={`today-net-badge ${todayStats.net >= 0 ? 'plus' : 'minus'}`}>
+                  {todayStats.net >= 0 ? 'Surplus' : 'Defisit'}: {formatCurrency(Math.abs(todayStats.net))}
                 </div>
               </div>
             </motion.div>

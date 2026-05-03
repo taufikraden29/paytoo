@@ -1605,3 +1605,120 @@ input:checked + .slider:before {
   }
 }
 
+
+.today-card {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+}
+
+.today-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.today-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.today-title h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.today-badge {
+  background: var(--accent-primary);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.today-count {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.today-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.today-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--bg-accent);
+  border: 1px solid var(--glass-border);
+}
+
+.today-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.today-item.income .today-icon {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--income);
+}
+
+.today-item.expense .today-icon {
+  background: rgba(244, 63, 94, 0.1);
+  color: var(--expense);
+}
+
+.today-info p:first-child {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.today-amount {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.today-item.income .today-amount { color: var(--income); }
+.today-item.expense .today-amount { color: var(--text-primary); }
+
+.today-net-row {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.today-net-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 20px;
+}
+
+.today-net-badge.plus {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--income);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.today-net-badge.minus {
+  background: rgba(244, 63, 94, 0.1);
+  color: var(--expense);
+  border: 1px solid rgba(244, 63, 94, 0.2);
+}
